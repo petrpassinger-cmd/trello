@@ -742,8 +742,12 @@ function renderBoard() {
       dragClass:  'card-dragging',
       onStart() { isSorting = true; },
       async onEnd(evt) {
-        isSorting = false;
+        if (evt.from === evt.to && evt.oldIndex === evt.newIndex) {
+          isSorting = false;
+          return;
+        }
         await handleSortEnd(evt);
+        isSorting = false;
       },
     });
   });
@@ -781,28 +785,38 @@ async function moveCard(cardId, targetCol) {
 
 // ── SortableJS drop handler ───────────────────────────────────────────────────
 async function handleSortEnd(evt) {
-  const cardId   = evt.item.dataset.id;
-  const toColId  = evt.to.id.replace('cw-', '');
+  const fromColId = evt.from.id.replace('cw-', '');
+  const toColId   = evt.to.id.replace('cw-', '');
 
-  // Current state of destination column (excluding moved card, sorted)
-  const destCards = state.cards
-    .filter(c => c.column_id === toColId && c.id !== cardId)
-    .sort((a, b) => a.position - b.position);
+  // Read new card order directly from the DOM (SortableJS already moved the element)
+  const toIds   = [...evt.to.querySelectorAll('[data-id]')].map(el => el.dataset.id);
+  const fromIds = fromColId !== toColId
+    ? [...evt.from.querySelectorAll('[data-id]')].map(el => el.dataset.id)
+    : [];
 
-  // Real DOM order after SortableJS moved the element
-  const domIds   = [...evt.to.querySelectorAll('[data-id]')].map(el => el.dataset.id);
-  const newIdx   = domIds.indexOf(cardId);
-  const prevCard = destCards.find(c => c.id === domIds[newIdx - 1]);
-  const nextCard = destCards.find(c => c.id === domIds[newIdx + 1]);
+  // Assign clean integer positions (0, 1, 2…) — avoids fractional values
+  // that would collide when stored in the INTEGER column
+  const updates = [
+    ...toIds.map((id, idx)   => ({ id, column_id: toColId,   position: idx })),
+    ...fromIds.map((id, idx) => ({ id, column_id: fromColId, position: idx })),
+  ];
 
-  let newPos;
-  if (!prevCard && !nextCard) newPos = 0;
-  else if (!prevCard)         newPos = nextCard.position - 1;
-  else if (!nextCard)         newPos = prevCard.position + 1;
-  else                        newPos = (prevCard.position + nextCard.position) / 2;
+  // Optimistically apply to local state so any renderBoard() triggered
+  // before the real-time events arrive still shows the correct order
+  updates.forEach(({ id, column_id, position }) => {
+    const c = state.cards.find(x => x.id === id);
+    if (c) { c.column_id = column_id; c.position = position; }
+  });
 
-  const { error } = await sb.from('cards').update({ column_id: toColId, position: newPos }).eq('id', cardId);
-  if (error) { console.error(error); loadData(); } // fallback: reload on error
+  // Persist all position changes to Supabase in parallel
+  const results = await Promise.all(
+    updates.map(({ id, column_id, position }) =>
+      sb.from('cards').update({ column_id, position }).eq('id', id)
+    )
+  );
+
+  const failed = results.find(r => r.error);
+  if (failed) { console.error(failed.error); loadData(); }
 }
 
 // ── Card Modal ────────────────────────────────────────────────────────────────
