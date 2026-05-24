@@ -6,8 +6,12 @@ CREATE TABLE IF NOT EXISTS cards (
   description TEXT DEFAULT '',
   column_id TEXT NOT NULL,
   position INTEGER DEFAULT 0,
+  deadline DATE DEFAULT NULL,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- If the table already exists, run this to add the deadline column:
+-- ALTER TABLE cards ADD COLUMN IF NOT EXISTS deadline DATE DEFAULT NULL;
 
 CREATE TABLE IF NOT EXISTS checklist_items (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,

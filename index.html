@@ -125,6 +125,22 @@
     .cl-badge.done { background: #d3f5e3; color: #1a7f4b; }
     .cl-badge::before { content: '☑'; font-size: 11px; }
 
+    .dl-badge {
+      font-size: 11px;
+      border-radius: 10px;
+      padding: 2px 8px;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-weight: 500;
+    }
+    .dl-badge::before { content: '📅'; font-size: 10px; }
+    .dl-badge.dl-na     { background: #f1f2f4; color: #8993a4; }
+    .dl-badge.dl-future { background: #e9f2ff; color: #0055cc; }
+    .dl-badge.dl-soon   { background: #fff7d6; color: #974f0c; }
+    .dl-badge.dl-today  { background: #fff0b3; color: #974f0c; font-weight: 600; }
+    .dl-badge.dl-over   { background: #ffebe6; color: #ae2a19; font-weight: 600; }
+
     /* ── Add card area ── */
     .add-area { padding: 4px 8px 8px; flex-shrink: 0; }
 
@@ -513,6 +529,9 @@
           <option value="review">Review</option>
           <option value="done">Done</option>
         </select>
+        <span class="modal-col-label" style="margin-left:12px">Deadline</span>
+        <input type="date" id="modal-deadline" class="modal-col-select" style="cursor:pointer">
+        <button id="modal-deadline-clear" title="Clear deadline" style="background:transparent;border:none;cursor:pointer;color:#8993a4;font-size:16px;padding:0 4px;line-height:1" title="Remove deadline">&times;</button>
       </div>
 
       <div>
@@ -753,6 +772,19 @@ function buildBoard() {
   });
 }
 
+// ── Deadline helpers ──────────────────────────────────────────────────────────
+function deadlineBadge(dateStr) {
+  if (!dateStr) return `<span class="dl-badge dl-na">Deadline: N/A</span>`;
+  const today = new Date(); today.setHours(0,0,0,0);
+  const d     = new Date(dateStr + 'T00:00:00');
+  const diff  = Math.round((d - today) / 86400000); // days
+  const label = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: d.getFullYear() !== today.getFullYear() ? 'numeric' : undefined });
+  if (diff < 0)  return `<span class="dl-badge dl-over">⚠ ${label}</span>`;
+  if (diff === 0) return `<span class="dl-badge dl-today">Today</span>`;
+  if (diff <= 3)  return `<span class="dl-badge dl-soon">${label}</span>`;
+  return `<span class="dl-badge dl-future">${label}</span>`;
+}
+
 function renderBoard() {
   COLUMNS.forEach(({ id }) => {
     const colCards = state.cards
@@ -764,12 +796,12 @@ function renderBoard() {
       const items = state.checklist.filter(i => i.card_id === card.id);
       const checked = items.filter(i => i.checked).length;
       const total = items.length;
-      const badge = total > 0
-        ? `<div class="card-meta"><span class="cl-badge${checked === total ? ' done' : ''}">${checked}/${total}</span></div>`
+      const clBadge = total > 0
+        ? `<span class="cl-badge${checked === total ? ' done' : ''}">${checked}/${total}</span>`
         : '';
       return `<div class="card" data-id="${card.id}" draggable="true">
         <div class="card-title">${esc(card.title)}</div>
-        ${badge}
+        <div class="card-meta">${clBadge}${deadlineBadge(card.deadline)}</div>
       </div>`;
     }).join('');
   });
@@ -840,6 +872,7 @@ function openCardModal(cardId) {
   document.getElementById('modal-title').value = card.title;
   document.getElementById('modal-desc').value = card.description || '';
   document.getElementById('modal-col-select').value = card.column_id;
+  document.getElementById('modal-deadline').value = card.deadline || '';
   renderChecklist();
   document.getElementById('card-modal').classList.add('open');
   document.getElementById('modal-title').focus();
@@ -852,6 +885,7 @@ function syncModalHeader(card) {
   document.getElementById('modal-title').value = card.title;
   document.getElementById('modal-desc').value = card.description || '';
   document.getElementById('modal-col-select').value = card.column_id;
+  document.getElementById('modal-deadline').value = card.deadline || '';
 }
 
 // ── Checklist rendering ───────────────────────────────────────────────────────
@@ -907,6 +941,18 @@ document.getElementById('modal-desc').addEventListener('blur', async () => {
 document.getElementById('modal-col-select').addEventListener('change', async () => {
   if (!activeCardId) return;
   await moveCard(activeCardId, document.getElementById('modal-col-select').value);
+});
+
+document.getElementById('modal-deadline').addEventListener('change', async () => {
+  if (!activeCardId) return;
+  const deadline = document.getElementById('modal-deadline').value || null;
+  await sb.from('cards').update({ deadline }).eq('id', activeCardId);
+});
+
+document.getElementById('modal-deadline-clear').addEventListener('click', async () => {
+  if (!activeCardId) return;
+  document.getElementById('modal-deadline').value = '';
+  await sb.from('cards').update({ deadline: null }).eq('id', activeCardId);
 });
 
 // Checklist delegation
