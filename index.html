@@ -666,48 +666,60 @@ function buildBoard() {
     </div>
   `).join('');
 
-  // Board-level DnD (handles both reorder within column and move between columns)
-  function clearDragUI() {
-    board.querySelectorAll('.card.drop-above, .card.drop-below').forEach(c => c.classList.remove('drop-above', 'drop-below'));
-    board.querySelectorAll('.column.drag-over').forEach(c => c.classList.remove('drag-over'));
+  // Per-column DnD — reliable for both reorder within column and cross-column moves
+  function dndClear() {
+    board.querySelectorAll('.card.drop-above, .card.drop-below')
+      .forEach(c => c.classList.remove('drop-above', 'drop-below'));
+    board.querySelectorAll('.column.drag-over')
+      .forEach(c => c.classList.remove('drag-over'));
   }
 
-  board.addEventListener('dragover', e => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    clearDragUI();
+  board.querySelectorAll('[data-column]').forEach(colEl => {
+    const colId = colEl.dataset.column;
 
-    const targetCard = e.target.closest('.card');
-    const targetCol  = e.target.closest('[data-column]');
+    colEl.addEventListener('dragover', e => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
 
-    if (targetCard && targetCard.dataset.id !== draggedCardId) {
-      const rect   = targetCard.getBoundingClientRect();
-      const before = e.clientY < rect.top + rect.height / 2;
-      targetCard.classList.add(before ? 'drop-above' : 'drop-below');
-      dropTarget = { cardId: targetCard.dataset.id, before };
-      if (targetCol) targetCol.classList.add('drag-over');
-    } else if (targetCol) {
-      targetCol.classList.add('drag-over');
+      // Highlight only this column
+      board.querySelectorAll('.column').forEach(c => c.classList.remove('drag-over'));
+      colEl.classList.add('drag-over');
+
+      // Find hovered card and show insertion line
+      board.querySelectorAll('.card.drop-above, .card.drop-below')
+        .forEach(c => c.classList.remove('drop-above', 'drop-below'));
+
+      const hovered = e.target.closest('.card');
+      if (hovered && hovered.dataset.id !== draggedCardId) {
+        const { top, height } = hovered.getBoundingClientRect();
+        const before = e.clientY < top + height / 2;
+        hovered.classList.add(before ? 'drop-above' : 'drop-below');
+        dropTarget = { cardId: hovered.dataset.id, before };
+      } else {
+        dropTarget = null;
+      }
+    });
+
+    colEl.addEventListener('dragleave', e => {
+      if (!colEl.contains(e.relatedTarget)) {
+        colEl.classList.remove('drag-over');
+      }
+    });
+
+    colEl.addEventListener('drop', e => {
+      e.preventDefault();
+      dndClear();
+      if (!draggedCardId) { dropTarget = null; return; }
+
+      const snap = dropTarget; // capture before any async clears it
       dropTarget = null;
-    }
-  });
 
-  board.addEventListener('dragleave', e => {
-    if (!board.contains(e.relatedTarget)) { clearDragUI(); dropTarget = null; }
-  });
-
-  board.addEventListener('drop', e => {
-    e.preventDefault();
-    const targetCol = e.target.closest('[data-column]');
-    clearDragUI();
-    if (!draggedCardId || !targetCol) { dropTarget = null; return; }
-    const colId = targetCol.dataset.column;
-    if (dropTarget) {
-      reorderCard(draggedCardId, dropTarget.cardId, dropTarget.before, colId);
-    } else {
-      moveCard(draggedCardId, colId);
-    }
-    dropTarget = null;
+      if (snap) {
+        reorderCard(draggedCardId, snap.cardId, snap.before, colId);
+      } else {
+        moveCard(draggedCardId, colId);
+      }
+    });
   });
 
   // Add-card listeners (attached once)
@@ -739,8 +751,7 @@ function buildBoard() {
     if (card) card.classList.remove('dragging');
     draggedCardId = null;
     dropTarget = null;
-    board.querySelectorAll('.drag-over').forEach(c => c.classList.remove('drag-over'));
-    board.querySelectorAll('.card.drop-above, .card.drop-below').forEach(c => c.classList.remove('drop-above', 'drop-below'));
+    dndClear();
   });
 }
 
