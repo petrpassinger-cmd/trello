@@ -397,7 +397,8 @@
       padding: 12px 18px;
       border-top: 1px solid #dde1e7;
       display: flex;
-      justify-content: flex-end;
+      justify-content: space-between;
+      align-items: center;
     }
     .btn-danger {
       background: transparent;
@@ -412,6 +413,20 @@
       transition: background 0.1s;
     }
     .btn-danger:hover { background: #ae2a19; color: #fff; }
+
+    .btn-secondary {
+      background: transparent;
+      color: #44546f;
+      border: 1px solid #b3bac5;
+      border-radius: 4px;
+      padding: 7px 14px;
+      font-size: 13px;
+      font-family: 'Inter', sans-serif;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.1s, border-color 0.1s;
+    }
+    .btn-secondary:hover { background: #e4e6ea; border-color: #8590a2; }
 
     /* ── Setup modal ── */
     .setup-box {
@@ -512,6 +527,7 @@
     </div>
 
     <div class="modal-footer">
+      <button class="btn-secondary" id="duplicate-card-btn">Duplicate card</button>
       <button class="btn-danger" id="delete-card-btn">Delete card</button>
     </div>
   </div>
@@ -836,6 +852,35 @@ document.getElementById('cl-add-btn').addEventListener('click', addChecklistItem
 document.getElementById('cl-new-input').addEventListener('keydown', e => {
   if (e.key === 'Enter') { e.preventDefault(); addChecklistItem(); }
   if (e.key === 'Escape') document.getElementById('cl-new-input').value = '';
+});
+
+document.getElementById('duplicate-card-btn').addEventListener('click', async () => {
+  if (!activeCardId) return;
+  const card = state.cards.find(c => c.id === activeCardId);
+  if (!card) return;
+
+  // Insert duplicate card right after the original
+  const colCards = state.cards.filter(c => c.column_id === card.column_id);
+  const pos = colCards.length ? Math.max(...colCards.map(c => c.position)) + 1 : 0;
+
+  const { data: newCard, error } = await sb.from('cards').insert({
+    title: card.title + ' (copy)',
+    description: card.description || '',
+    column_id: card.column_id,
+    position: pos,
+  }).select().single();
+
+  if (error) { console.error(error); return; }
+
+  // Duplicate all checklist items
+  const items = state.checklist.filter(i => i.card_id === activeCardId);
+  if (items.length > 0) {
+    await sb.from('checklist_items').insert(
+      items.map(i => ({ card_id: newCard.id, text: i.text, checked: false, position: i.position }))
+    );
+  }
+
+  closeCardModal();
 });
 
 document.getElementById('delete-card-btn').addEventListener('click', async () => {
