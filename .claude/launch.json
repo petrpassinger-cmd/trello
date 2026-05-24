@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "trello",
+      "runtimeExecutable": "powershell.exe",
+      "runtimeArgs": ["-NoProfile", "-Command", "$port=$env:PORT;if(!$port){$port=3459};$l=New-Object System.Net.HttpListener;$l.Prefixes.Add(\"http://localhost:$port/\");$l.Start();Write-Host \"Server started on $port\";while($true){$c=$l.GetContext();$req=$c.Request.Url.LocalPath;if($req -eq '/' -or $req -eq '/index.html'){$file='index.html';$ct='text/html; charset=utf-8'}elseif($req -match '\\.js$'){$file='.'+$req;$ct='application/javascript'}elseif($req -match '\\.css$'){$file='.'+$req;$ct='text/css'}else{$file='.'+$req;$ct='application/octet-stream'};try{$f=[System.IO.File]::ReadAllBytes($file);$c.Response.ContentType=$ct;$c.Response.ContentLength64=$f.Length;$c.Response.OutputStream.Write($f,0,$f.Length)}catch{$c.Response.StatusCode=404};$c.Response.Close()}"],
+      "port": 3459,
+      "autoPort": true
+    }
+  ]
+}

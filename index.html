@@ -1,1 +1,888 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Design Board</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+    body {
+      font-family: 'Inter', sans-serif;
+      background: #1d2125;
+      min-height: 100vh;
+      color: #172b4d;
+      overflow-x: hidden;
+    }
+
+    /* ── Header ── */
+    #app-header {
+      background: rgba(0,0,0,0.3);
+      backdrop-filter: blur(4px);
+      padding: 10px 20px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+    #app-header h1 {
+      font-size: 17px;
+      font-weight: 700;
+      color: #fff;
+      letter-spacing: -0.02em;
+    }
+
+    /* ── Board ── */
+    #board {
+      display: flex;
+      gap: 10px;
+      padding: 16px;
+      overflow-x: auto;
+      align-items: flex-start;
+      min-height: calc(100vh - 49px);
+    }
+
+    /* ── Column ── */
+    .column {
+      background: #f1f2f4;
+      border-radius: 12px;
+      width: 272px;
+      min-width: 272px;
+      max-height: calc(100vh - 85px);
+      display: flex;
+      flex-direction: column;
+      transition: background 0.15s;
+    }
+    .column.drag-over { background: #dce4f5; }
+
+    .col-header {
+      padding: 10px 12px 6px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+    .col-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: #172b4d;
+    }
+    .col-count {
+      font-size: 12px;
+      color: #626f86;
+      background: #dde1e7;
+      border-radius: 10px;
+      padding: 1px 7px;
+      min-width: 22px;
+      text-align: center;
+    }
+
+    .cards-wrap {
+      padding: 4px 8px;
+      flex: 1;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      min-height: 4px;
+    }
+
+    /* ── Card ── */
+    .card {
+      background: #fff;
+      border-radius: 8px;
+      padding: 10px 12px;
+      cursor: pointer;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.09), 0 0 0 1px rgba(0,0,0,0.04);
+      transition: box-shadow 0.15s, transform 0.1s;
+      user-select: none;
+    }
+    .card:hover {
+      box-shadow: 0 4px 14px rgba(0,0,0,0.14);
+      transform: translateY(-1px);
+    }
+    .card.dragging {
+      opacity: 0.45;
+      transform: rotate(1.5deg) scale(1.02);
+      box-shadow: 0 12px 28px rgba(0,0,0,0.22);
+    }
+    .card-title { font-size: 14px; color: #172b4d; line-height: 1.45; }
+    .card-meta { margin-top: 7px; display: flex; gap: 6px; flex-wrap: wrap; }
+    .cl-badge {
+      font-size: 11px;
+      color: #626f86;
+      background: #f1f2f4;
+      border-radius: 10px;
+      padding: 2px 7px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .cl-badge.done { background: #d3f5e3; color: #1a7f4b; }
+    .cl-badge::before { content: '☑'; font-size: 11px; }
+
+    /* ── Add card area ── */
+    .add-area { padding: 4px 8px 8px; flex-shrink: 0; }
+
+    .btn-add-card {
+      width: 100%;
+      padding: 7px 10px;
+      background: transparent;
+      border: none;
+      border-radius: 8px;
+      text-align: left;
+      cursor: pointer;
+      color: #626f86;
+      font-size: 13.5px;
+      font-family: 'Inter', sans-serif;
+      transition: background 0.1s, color 0.1s;
+    }
+    .btn-add-card:hover { background: rgba(0,0,0,0.07); color: #172b4d; }
+
+    .add-form { display: none; }
+    .add-form.open { display: block; }
+
+    .add-form textarea {
+      width: 100%;
+      border: 2px solid #388bff;
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 14px;
+      font-family: 'Inter', sans-serif;
+      resize: none;
+      outline: none;
+      color: #172b4d;
+      min-height: 58px;
+      line-height: 1.4;
+    }
+    .add-form-actions {
+      display: flex;
+      gap: 6px;
+      margin-top: 6px;
+      align-items: center;
+    }
+
+    /* ── Buttons ── */
+    .btn-primary {
+      background: #0c66e4;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      padding: 7px 14px;
+      font-size: 14px;
+      font-family: 'Inter', sans-serif;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.1s;
+    }
+    .btn-primary:hover { background: #0055cc; }
+    .btn-primary:disabled { background: #8fb8f5; cursor: default; }
+
+    .btn-icon {
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      color: #626f86;
+      font-size: 22px;
+      padding: 3px 8px;
+      border-radius: 4px;
+      line-height: 1;
+      font-family: 'Inter', sans-serif;
+    }
+    .btn-icon:hover { background: rgba(0,0,0,0.08); color: #172b4d; }
+
+    /* ── Modal overlay ── */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.56);
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      padding: 48px 16px 32px;
+      z-index: 200;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.18s;
+      overflow-y: auto;
+    }
+    .modal-overlay.open {
+      opacity: 1;
+      pointer-events: all;
+    }
+
+    /* ── Card modal ── */
+    .card-modal-box {
+      background: #f1f2f4;
+      border-radius: 12px;
+      width: 100%;
+      max-width: 560px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+      position: relative;
+      transform: translateY(-8px);
+      transition: transform 0.18s;
+    }
+    .modal-overlay.open .card-modal-box { transform: translateY(0); }
+
+    .modal-close {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: transparent;
+      border: none;
+      font-size: 26px;
+      line-height: 1;
+      cursor: pointer;
+      color: #626f86;
+      border-radius: 6px;
+      width: 34px;
+      height: 34px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-close:hover { background: rgba(0,0,0,0.08); color: #172b4d; }
+
+    .modal-title-row {
+      padding: 18px 52px 10px 18px;
+    }
+    .modal-title-input {
+      width: 100%;
+      border: none;
+      background: transparent;
+      font-size: 17px;
+      font-weight: 600;
+      font-family: 'Inter', sans-serif;
+      color: #172b4d;
+      outline: none;
+      padding: 5px 8px;
+      border-radius: 5px;
+    }
+    .modal-title-input:focus {
+      background: #fff;
+      box-shadow: 0 0 0 2px #388bff;
+    }
+
+    .modal-body { padding: 0 18px 18px; }
+
+    .modal-col-row {
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .modal-col-label { font-size: 12px; color: #626f86; font-weight: 500; }
+    .modal-col-select {
+      border: 1px solid #d1d9e0;
+      border-radius: 5px;
+      padding: 5px 10px;
+      font-size: 13px;
+      font-family: 'Inter', sans-serif;
+      color: #172b4d;
+      background: #fff;
+      cursor: pointer;
+      outline: none;
+    }
+    .modal-col-select:focus { border-color: #388bff; }
+
+    .section-label {
+      font-size: 11.5px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #626f86;
+      margin-bottom: 8px;
+    }
+
+    .modal-desc-ta {
+      width: 100%;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      padding: 8px 10px;
+      font-size: 14px;
+      font-family: 'Inter', sans-serif;
+      color: #172b4d;
+      background: #e4e6ea;
+      resize: vertical;
+      min-height: 72px;
+      outline: none;
+      transition: background 0.12s, border-color 0.12s;
+      line-height: 1.45;
+    }
+    .modal-desc-ta::placeholder { color: #8993a4; }
+    .modal-desc-ta:focus { background: #fff; border-color: #388bff; }
+
+    /* ── Checklist ── */
+    .modal-section { margin-top: 18px; }
+
+    .progress-wrap {
+      height: 6px;
+      background: #dde1e7;
+      border-radius: 4px;
+      margin-bottom: 10px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      background: #22c55e;
+      border-radius: 4px;
+      transition: width 0.3s ease;
+    }
+
+    .cl-list { display: flex; flex-direction: column; gap: 2px; margin-bottom: 10px; }
+
+    .cl-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 9px;
+      padding: 5px 7px;
+      border-radius: 6px;
+      transition: background 0.1s;
+    }
+    .cl-item:hover { background: rgba(0,0,0,0.06); }
+
+    .cl-item input[type="checkbox"] {
+      margin-top: 2px;
+      width: 15px;
+      height: 15px;
+      cursor: pointer;
+      accent-color: #0c66e4;
+      flex-shrink: 0;
+    }
+    .cl-text {
+      flex: 1;
+      font-size: 14px;
+      color: #172b4d;
+      line-height: 1.4;
+      word-break: break-word;
+    }
+    .cl-text.done { text-decoration: line-through; color: #8993a4; }
+
+    .cl-del {
+      background: transparent;
+      border: none;
+      color: #8993a4;
+      cursor: pointer;
+      font-size: 17px;
+      padding: 0 5px;
+      border-radius: 4px;
+      opacity: 0;
+      line-height: 1.2;
+      flex-shrink: 0;
+      transition: opacity 0.1s;
+    }
+    .cl-item:hover .cl-del { opacity: 1; }
+    .cl-del:hover { background: #ff5630; color: #fff; }
+
+    .cl-add-row { display: flex; gap: 8px; }
+    .cl-add-input {
+      flex: 1;
+      border: 1px solid #d1d9e0;
+      border-radius: 6px;
+      padding: 7px 10px;
+      font-size: 14px;
+      font-family: 'Inter', sans-serif;
+      color: #172b4d;
+      outline: none;
+      background: #fff;
+    }
+    .cl-add-input:focus { border-color: #388bff; box-shadow: 0 0 0 1px #388bff; }
+
+    /* ── Modal footer ── */
+    .modal-footer {
+      padding: 12px 18px;
+      border-top: 1px solid #dde1e7;
+      display: flex;
+      justify-content: flex-end;
+    }
+    .btn-danger {
+      background: transparent;
+      color: #ae2a19;
+      border: 1px solid #c9372c;
+      border-radius: 4px;
+      padding: 7px 14px;
+      font-size: 13px;
+      font-family: 'Inter', sans-serif;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.1s;
+    }
+    .btn-danger:hover { background: #ae2a19; color: #fff; }
+
+    /* ── Setup modal ── */
+    .setup-box {
+      background: #fff;
+      border-radius: 12px;
+      padding: 36px 32px;
+      width: 100%;
+      max-width: 440px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    }
+    .setup-box h2 { font-size: 22px; font-weight: 700; color: #172b4d; margin-bottom: 6px; }
+    .setup-box p { font-size: 14px; color: #626f86; margin-bottom: 24px; line-height: 1.5; }
+
+    .setup-error {
+      background: #ffebe6;
+      color: #ae2a19;
+      border-radius: 6px;
+      padding: 10px 14px;
+      font-size: 13px;
+      margin-bottom: 16px;
+    }
+
+    .fg { margin-bottom: 16px; }
+    .fg label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: #626f86;
+      margin-bottom: 6px;
+    }
+    .fg input {
+      width: 100%;
+      border: 1px solid #d1d9e0;
+      border-radius: 6px;
+      padding: 9px 12px;
+      font-size: 14px;
+      font-family: 'Inter', sans-serif;
+      color: #172b4d;
+      outline: none;
+    }
+    .fg input:focus { border-color: #388bff; box-shadow: 0 0 0 1px #388bff; }
+
+    .btn-lg { padding: 10px 20px; font-size: 15px; width: 100%; border-radius: 6px; margin-top: 4px; }
+
+    /* scrollbar */
+    .cards-wrap::-webkit-scrollbar { width: 5px; }
+    .cards-wrap::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 4px; }
+  </style>
+</head>
+<body>
+
+<header id="app-header">
+  <h1>Design Board</h1>
+</header>
+
+<div id="board"></div>
+
+<!-- Card Modal -->
+<div id="card-modal" class="modal-overlay" role="dialog" aria-modal="true">
+  <div class="card-modal-box">
+    <button class="modal-close" id="modal-close-btn" aria-label="Close">&times;</button>
+
+    <div class="modal-title-row">
+      <input type="text" id="modal-title" class="modal-title-input" placeholder="Card title">
+    </div>
+
+    <div class="modal-body">
+      <div class="modal-col-row">
+        <span class="modal-col-label">Column</span>
+        <select id="modal-col-select" class="modal-col-select">
+          <option value="todo">To Do</option>
+          <option value="ready">Ready</option>
+          <option value="in-progress">In Progress</option>
+          <option value="review">Review</option>
+          <option value="done">Done</option>
+        </select>
+      </div>
+
+      <div>
+        <div class="section-label">Description</div>
+        <textarea id="modal-desc" class="modal-desc-ta" rows="3"
+                  placeholder="Add a more detailed description..."></textarea>
+      </div>
+
+      <div class="modal-section">
+        <div class="section-label" id="cl-label">Checklist</div>
+        <div class="progress-wrap" id="cl-progress-wrap" style="display:none">
+          <div class="progress-fill" id="cl-progress-fill"></div>
+        </div>
+        <div class="cl-list" id="cl-list"></div>
+        <div class="cl-add-row">
+          <input type="text" id="cl-new-input" class="cl-add-input" placeholder="Add an item…">
+          <button class="btn-primary" id="cl-add-btn">Add</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn-danger" id="delete-card-btn">Delete card</button>
+    </div>
+  </div>
+</div>
+
+<!-- Setup Modal -->
+<div id="setup-modal" class="modal-overlay open" role="dialog" aria-modal="true">
+  <div class="setup-box">
+    <h2>Welcome to Design Board</h2>
+    <p>Enter your Supabase credentials to connect the board. Both team members use the same credentials — they're stored in your browser.</p>
+    <div id="setup-error" class="setup-error" style="display:none"></div>
+    <div class="fg">
+      <label>Supabase Project URL</label>
+      <input type="url" id="setup-url" placeholder="https://xxxxxxxxxxxx.supabase.co" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="fg">
+      <label>Anon / Public Key</label>
+      <input type="text" id="setup-key" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9…" autocomplete="off" spellcheck="false">
+    </div>
+    <button class="btn-primary btn-lg" id="setup-btn">Connect</button>
+  </div>
+</div>
+
+<script>
+const COLUMNS = [
+  { id: 'todo',        label: 'To Do' },
+  { id: 'ready',       label: 'Ready' },
+  { id: 'in-progress', label: 'In Progress' },
+  { id: 'review',      label: 'Review' },
+  { id: 'done',        label: 'Done' },
+];
+
+const SB_URL_KEY = 'db_sb_url';
+const SB_KEY_KEY = 'db_sb_key';
+
+let sb = null;
+let state = { cards: [], checklist: [] };
+let activeCardId = null;
+let draggedCardId = null;
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+async function init() {
+  const url = localStorage.getItem(SB_URL_KEY);
+  const key = localStorage.getItem(SB_KEY_KEY);
+  if (url && key) {
+    try { await connect(url, key); return; } catch (_) {}
+  }
+  openSetup();
+}
+
+async function connect(url, key) {
+  sb = window.supabase.createClient(url, key, {
+    realtime: { params: { eventsPerSecond: 10 } }
+  });
+  const { error } = await sb.from('cards').select('id').limit(1);
+  if (error) throw new Error(error.message);
+  localStorage.setItem(SB_URL_KEY, url);
+  localStorage.setItem(SB_KEY_KEY, key);
+  closeSetup();
+  buildBoard();
+  await loadData();
+  subscribe();
+}
+
+// ── Data ──────────────────────────────────────────────────────────────────────
+async function loadData() {
+  const [{ data: cards, error: e1 }, { data: cl, error: e2 }] = await Promise.all([
+    sb.from('cards').select('*').order('position'),
+    sb.from('checklist_items').select('*').order('position'),
+  ]);
+  if (e1 || e2) console.error(e1 || e2);
+  state.cards = cards || [];
+  state.checklist = cl || [];
+  renderBoard();
+}
+
+function subscribe() {
+  sb.channel('board-sync')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'cards' }, ({ eventType, new: n, old: o }) => {
+      if (eventType === 'INSERT') state.cards.push(n);
+      else if (eventType === 'UPDATE') {
+        const i = state.cards.findIndex(c => c.id === n.id);
+        if (i >= 0) state.cards[i] = n;
+        if (activeCardId === n.id) syncModalHeader(n);
+      } else if (eventType === 'DELETE') {
+        state.cards = state.cards.filter(c => c.id !== o.id);
+        if (activeCardId === o.id) closeCardModal();
+      }
+      renderBoard();
+    })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'checklist_items' }, ({ eventType, new: n, old: o }) => {
+      if (eventType === 'INSERT') state.checklist.push(n);
+      else if (eventType === 'UPDATE') {
+        const i = state.checklist.findIndex(c => c.id === n.id);
+        if (i >= 0) state.checklist[i] = n;
+      } else if (eventType === 'DELETE') {
+        state.checklist = state.checklist.filter(c => c.id !== o.id);
+      }
+      renderBoard();
+      if (activeCardId) renderChecklist();
+    })
+    .subscribe();
+}
+
+// ── Board rendering ───────────────────────────────────────────────────────────
+function buildBoard() {
+  const board = document.getElementById('board');
+  board.innerHTML = COLUMNS.map(col => `
+    <div class="column" data-column="${col.id}">
+      <div class="col-header">
+        <span class="col-title">${col.label}</span>
+        <span class="col-count" id="cnt-${col.id}">0</span>
+      </div>
+      <div class="cards-wrap" id="cw-${col.id}"></div>
+      <div class="add-area">
+        <button class="btn-add-card" data-col="${col.id}">+ Add a card</button>
+        <div class="add-form" id="af-${col.id}">
+          <textarea id="at-${col.id}" placeholder="Card title…" rows="2"></textarea>
+          <div class="add-form-actions">
+            <button class="btn-primary" id="as-${col.id}">Add card</button>
+            <button class="btn-icon" id="ac-${col.id}">&times;</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `).join('');
+
+  // Column DnD listeners (attached once)
+  board.querySelectorAll('[data-column]').forEach(col => {
+    col.addEventListener('dragover', e => { e.preventDefault(); col.classList.add('drag-over'); });
+    col.addEventListener('dragleave', e => { if (!col.contains(e.relatedTarget)) col.classList.remove('drag-over'); });
+    col.addEventListener('drop', e => {
+      e.preventDefault();
+      col.classList.remove('drag-over');
+      if (draggedCardId) moveCard(draggedCardId, col.dataset.column);
+    });
+  });
+
+  // Add-card listeners (attached once)
+  COLUMNS.forEach(({ id }) => {
+    document.querySelector(`.btn-add-card[data-col="${id}"]`).addEventListener('click', () => showAddForm(id));
+    document.getElementById(`as-${id}`).addEventListener('click', () => submitCard(id));
+    document.getElementById(`ac-${id}`).addEventListener('click', () => hideAddForm(id));
+    document.getElementById(`at-${id}`).addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitCard(id); }
+      if (e.key === 'Escape') hideAddForm(id);
+    });
+  });
+
+  // Card click + drag via delegation on board
+  board.addEventListener('click', e => {
+    const card = e.target.closest('.card');
+    if (card) openCardModal(card.dataset.id);
+  });
+  board.addEventListener('dragstart', e => {
+    const card = e.target.closest('.card');
+    if (!card) return;
+    draggedCardId = card.dataset.id;
+    card.classList.add('dragging');
+    e.dataTransfer.setData('text/plain', card.dataset.id);
+    e.dataTransfer.effectAllowed = 'move';
+  });
+  board.addEventListener('dragend', e => {
+    const card = e.target.closest('.card');
+    if (card) card.classList.remove('dragging');
+    draggedCardId = null;
+    board.querySelectorAll('.drag-over').forEach(c => c.classList.remove('drag-over'));
+  });
+}
+
+function renderBoard() {
+  COLUMNS.forEach(({ id }) => {
+    const colCards = state.cards
+      .filter(c => c.column_id === id)
+      .sort((a, b) => a.position - b.position);
+
+    document.getElementById(`cnt-${id}`).textContent = colCards.length;
+    document.getElementById(`cw-${id}`).innerHTML = colCards.map(card => {
+      const items = state.checklist.filter(i => i.card_id === card.id);
+      const checked = items.filter(i => i.checked).length;
+      const total = items.length;
+      const badge = total > 0
+        ? `<div class="card-meta"><span class="cl-badge${checked === total ? ' done' : ''}">${checked}/${total}</span></div>`
+        : '';
+      return `<div class="card" data-id="${card.id}" draggable="true">
+        <div class="card-title">${esc(card.title)}</div>
+        ${badge}
+      </div>`;
+    }).join('');
+  });
+}
+
+// ── Add card inline ───────────────────────────────────────────────────────────
+function showAddForm(colId) {
+  document.querySelector(`.btn-add-card[data-col="${colId}"]`).style.display = 'none';
+  document.getElementById(`af-${colId}`).classList.add('open');
+  document.getElementById(`at-${colId}`).focus();
+}
+function hideAddForm(colId) {
+  document.querySelector(`.btn-add-card[data-col="${colId}"]`).style.display = '';
+  document.getElementById(`af-${colId}`).classList.remove('open');
+  document.getElementById(`at-${colId}`).value = '';
+}
+async function submitCard(colId) {
+  const ta = document.getElementById(`at-${colId}`);
+  const title = ta.value.trim();
+  if (!title) return;
+  hideAddForm(colId);
+  const colCards = state.cards.filter(c => c.column_id === colId);
+  const pos = colCards.length ? Math.max(...colCards.map(c => c.position)) + 1 : 0;
+  const { error } = await sb.from('cards').insert({ title, description: '', column_id: colId, position: pos });
+  if (error) console.error(error);
+}
+
+// ── Move card ─────────────────────────────────────────────────────────────────
+async function moveCard(cardId, targetCol) {
+  const card = state.cards.find(c => c.id === cardId);
+  if (!card || card.column_id === targetCol) return;
+  const targetCards = state.cards.filter(c => c.column_id === targetCol);
+  const pos = targetCards.length ? Math.max(...targetCards.map(c => c.position)) + 1 : 0;
+  const { error } = await sb.from('cards').update({ column_id: targetCol, position: pos }).eq('id', cardId);
+  if (error) console.error(error);
+}
+
+// ── Card Modal ────────────────────────────────────────────────────────────────
+function openCardModal(cardId) {
+  const card = state.cards.find(c => c.id === cardId);
+  if (!card) return;
+  activeCardId = cardId;
+  document.getElementById('modal-title').value = card.title;
+  document.getElementById('modal-desc').value = card.description || '';
+  document.getElementById('modal-col-select').value = card.column_id;
+  renderChecklist();
+  document.getElementById('card-modal').classList.add('open');
+  document.getElementById('modal-title').focus();
+}
+function closeCardModal() {
+  document.getElementById('card-modal').classList.remove('open');
+  activeCardId = null;
+}
+function syncModalHeader(card) {
+  document.getElementById('modal-title').value = card.title;
+  document.getElementById('modal-desc').value = card.description || '';
+  document.getElementById('modal-col-select').value = card.column_id;
+}
+
+// ── Checklist rendering ───────────────────────────────────────────────────────
+function renderChecklist() {
+  const items = state.checklist
+    .filter(i => i.card_id === activeCardId)
+    .sort((a, b) => a.position - b.position);
+
+  const total = items.length;
+  const checked = items.filter(i => i.checked).length;
+
+  const label = document.getElementById('cl-label');
+  label.textContent = total > 0 ? `Checklist — ${checked}/${total}` : 'Checklist';
+
+  const wrap = document.getElementById('cl-progress-wrap');
+  wrap.style.display = total > 0 ? 'block' : 'none';
+  if (total > 0) {
+    document.getElementById('cl-progress-fill').style.width = `${Math.round((checked / total) * 100)}%`;
+  }
+
+  document.getElementById('cl-list').innerHTML = items.map(item => `
+    <div class="cl-item" data-id="${item.id}">
+      <input type="checkbox" ${item.checked ? 'checked' : ''} data-id="${item.id}">
+      <span class="cl-text${item.checked ? ' done' : ''}">${esc(item.text)}</span>
+      <button class="cl-del" data-id="${item.id}" title="Remove">&times;</button>
+    </div>
+  `).join('');
+}
+
+// ── Modal event wiring ────────────────────────────────────────────────────────
+document.getElementById('modal-close-btn').addEventListener('click', closeCardModal);
+document.getElementById('card-modal').addEventListener('click', e => {
+  if (e.target === document.getElementById('card-modal')) closeCardModal();
+});
+
+document.getElementById('modal-title').addEventListener('blur', async () => {
+  if (!activeCardId) return;
+  const title = document.getElementById('modal-title').value.trim();
+  if (!title) return;
+  const card = state.cards.find(c => c.id === activeCardId);
+  if (card && title !== card.title) await sb.from('cards').update({ title }).eq('id', activeCardId);
+});
+
+document.getElementById('modal-desc').addEventListener('blur', async () => {
+  if (!activeCardId) return;
+  const description = document.getElementById('modal-desc').value;
+  const card = state.cards.find(c => c.id === activeCardId);
+  if (card && description !== (card.description || '')) {
+    await sb.from('cards').update({ description }).eq('id', activeCardId);
+  }
+});
+
+document.getElementById('modal-col-select').addEventListener('change', async () => {
+  if (!activeCardId) return;
+  await moveCard(activeCardId, document.getElementById('modal-col-select').value);
+});
+
+// Checklist delegation
+document.getElementById('cl-list').addEventListener('change', async e => {
+  const cb = e.target.closest('input[type="checkbox"]');
+  if (cb) await sb.from('checklist_items').update({ checked: cb.checked }).eq('id', cb.dataset.id);
+});
+document.getElementById('cl-list').addEventListener('click', async e => {
+  const btn = e.target.closest('.cl-del');
+  if (btn) await sb.from('checklist_items').delete().eq('id', btn.dataset.id);
+});
+
+async function addChecklistItem() {
+  const input = document.getElementById('cl-new-input');
+  const text = input.value.trim();
+  if (!text || !activeCardId) return;
+  input.value = '';
+  const items = state.checklist.filter(i => i.card_id === activeCardId);
+  const pos = items.length ? Math.max(...items.map(i => i.position)) + 1 : 0;
+  await sb.from('checklist_items').insert({ card_id: activeCardId, text, checked: false, position: pos });
+}
+document.getElementById('cl-add-btn').addEventListener('click', addChecklistItem);
+document.getElementById('cl-new-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); addChecklistItem(); }
+  if (e.key === 'Escape') document.getElementById('cl-new-input').value = '';
+});
+
+document.getElementById('delete-card-btn').addEventListener('click', async () => {
+  if (!activeCardId) return;
+  if (!confirm('Delete this card? This cannot be undone.')) return;
+  await sb.from('cards').delete().eq('id', activeCardId);
+  closeCardModal();
+});
+
+// ── Setup Modal ───────────────────────────────────────────────────────────────
+function openSetup(msg) {
+  document.getElementById('setup-modal').classList.add('open');
+  const err = document.getElementById('setup-error');
+  if (msg) { err.textContent = msg; err.style.display = 'block'; }
+  else { err.style.display = 'none'; }
+}
+function closeSetup() {
+  document.getElementById('setup-modal').classList.remove('open');
+}
+
+document.getElementById('setup-btn').addEventListener('click', async () => {
+  const url = document.getElementById('setup-url').value.trim();
+  const key = document.getElementById('setup-key').value.trim();
+  if (!url || !key) { openSetup('Please enter both the URL and the key.'); return; }
+  const btn = document.getElementById('setup-btn');
+  btn.textContent = 'Connecting…';
+  btn.disabled = true;
+  try {
+    await connect(url, key);
+  } catch (e) {
+    openSetup(e.message || 'Connection failed. Check your credentials and make sure the database tables exist.');
+    btn.textContent = 'Connect';
+    btn.disabled = false;
+  }
+});
+
+document.getElementById('setup-url').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('setup-key').focus(); });
+document.getElementById('setup-key').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('setup-btn').click(); });
+
+// ── Utility ───────────────────────────────────────────────────────────────────
+function esc(s) {
+  if (!s) return '';
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Start ─────────────────────────────────────────────────────────────────────
+init();
+</script>
+</body>
+</html>
