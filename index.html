@@ -8,6 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -105,10 +106,14 @@
       box-shadow: 0 4px 14px rgba(0,0,0,0.14);
       transform: translateY(-1px);
     }
-    .card.dragging {
-      opacity: 0.35;
-      pointer-events: none;
-      box-shadow: 0 12px 28px rgba(0,0,0,0.22);
+    .card-dragging {
+      opacity: 0.5;
+      box-shadow: 0 12px 28px rgba(0,0,0,0.22) !important;
+    }
+    .card-ghost {
+      opacity: 0.25;
+      background: #c8deff !important;
+      border: 2px dashed #388bff;
     }
     .card-title { font-size: 14px; color: #172b4d; line-height: 1.45; }
     .card-meta { margin-top: 7px; display: flex; gap: 6px; flex-wrap: wrap; }
@@ -489,14 +494,6 @@
 
     .btn-lg { padding: 10px 20px; font-size: 15px; width: 100%; border-radius: 6px; margin-top: 4px; }
 
-    /* ── Drag-reorder indicators ── */
-    .card.drop-above {
-      box-shadow: 0 -3px 0 0 #388bff, 0 1px 2px rgba(0,0,0,0.09);
-    }
-    .card.drop-below {
-      box-shadow: 0 3px 0 0 #388bff, 0 1px 2px rgba(0,0,0,0.09);
-    }
-
     /* scrollbar */
     .cards-wrap::-webkit-scrollbar { width: 5px; }
     .cards-wrap::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 4px; }
@@ -593,8 +590,8 @@ const SB_KEY_KEY = 'db_sb_key';
 let sb = null;
 let state = { cards: [], checklist: [] };
 let activeCardId = null;
-let draggedCardId = null;
-let dropTarget = null; // { cardId, before: bool }
+let sortables = {};
+let isSorting = false;
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 async function init() {
@@ -644,7 +641,7 @@ function subscribe() {
         state.cards = state.cards.filter(c => c.id !== o.id);
         if (activeCardId === o.id) closeCardModal();
       }
-      renderBoard();
+      if (!isSorting) renderBoard();
     })
     .on('postgres_changes', { event: '*', schema: 'public', table: 'checklist_items' }, ({ eventType, new: n, old: o }) => {
       if (eventType === 'INSERT') state.checklist.push(n);
@@ -683,62 +680,6 @@ function buildBoard() {
     </div>
   `).join('');
 
-  // Per-column DnD — reliable for both reorder within column and cross-column moves
-  function dndClear() {
-    board.querySelectorAll('.card.drop-above, .card.drop-below')
-      .forEach(c => c.classList.remove('drop-above', 'drop-below'));
-    board.querySelectorAll('.column.drag-over')
-      .forEach(c => c.classList.remove('drag-over'));
-  }
-
-  board.querySelectorAll('[data-column]').forEach(colEl => {
-    const colId = colEl.dataset.column;
-
-    colEl.addEventListener('dragover', e => {
-      e.preventDefault();
-      e.dataTransfer.dropEffect = 'move';
-
-      // Highlight only this column
-      board.querySelectorAll('.column').forEach(c => c.classList.remove('drag-over'));
-      colEl.classList.add('drag-over');
-
-      // Find hovered card and show insertion line
-      board.querySelectorAll('.card.drop-above, .card.drop-below')
-        .forEach(c => c.classList.remove('drop-above', 'drop-below'));
-
-      const hovered = e.target.closest('.card');
-      if (hovered && hovered.dataset.id !== draggedCardId) {
-        const { top, height } = hovered.getBoundingClientRect();
-        const before = e.clientY < top + height / 2;
-        hovered.classList.add(before ? 'drop-above' : 'drop-below');
-        dropTarget = { cardId: hovered.dataset.id, before };
-      } else {
-        dropTarget = null;
-      }
-    });
-
-    colEl.addEventListener('dragleave', e => {
-      if (!colEl.contains(e.relatedTarget)) {
-        colEl.classList.remove('drag-over');
-      }
-    });
-
-    colEl.addEventListener('drop', e => {
-      e.preventDefault();
-      dndClear();
-      if (!draggedCardId) { dropTarget = null; return; }
-
-      const snap = dropTarget; // capture before any async clears it
-      dropTarget = null;
-
-      if (snap) {
-        reorderCard(draggedCardId, snap.cardId, snap.before, colId);
-      } else {
-        moveCard(draggedCardId, colId);
-      }
-    });
-  });
-
   // Add-card listeners (attached once)
   COLUMNS.forEach(({ id }) => {
     document.querySelector(`.btn-add-card[data-col="${id}"]`).addEventListener('click', () => showAddForm(id));
@@ -750,25 +691,10 @@ function buildBoard() {
     });
   });
 
-  // Card click + drag via delegation on board
+  // Card click via delegation
   board.addEventListener('click', e => {
     const card = e.target.closest('.card');
     if (card) openCardModal(card.dataset.id);
-  });
-  board.addEventListener('dragstart', e => {
-    const card = e.target.closest('.card');
-    if (!card) return;
-    draggedCardId = card.dataset.id;
-    card.classList.add('dragging');
-    e.dataTransfer.setData('text/plain', card.dataset.id);
-    e.dataTransfer.effectAllowed = 'move';
-  });
-  board.addEventListener('dragend', e => {
-    const card = e.target.closest('.card');
-    if (card) card.classList.remove('dragging');
-    draggedCardId = null;
-    dropTarget = null;
-    dndClear();
   });
 }
 
@@ -799,11 +725,27 @@ function renderBoard() {
       const clBadge = total > 0
         ? `<span class="cl-badge${checked === total ? ' done' : ''}">${checked}/${total}</span>`
         : '';
-      return `<div class="card" data-id="${card.id}" draggable="true">
+      return `<div class="card" data-id="${card.id}">
         <div class="card-title">${esc(card.title)}</div>
         <div class="card-meta">${clBadge}${deadlineBadge(card.deadline)}</div>
       </div>`;
     }).join('');
+  });
+
+  // Reinitialise SortableJS on every render
+  COLUMNS.forEach(({ id }) => {
+    if (sortables[id]) { sortables[id].destroy(); sortables[id] = null; }
+    sortables[id] = Sortable.create(document.getElementById(`cw-${id}`), {
+      group:      'kanban',
+      animation:  150,
+      ghostClass: 'card-ghost',
+      dragClass:  'card-dragging',
+      onStart() { isSorting = true; },
+      async onEnd(evt) {
+        isSorting = false;
+        await handleSortEnd(evt);
+      },
+    });
   });
 }
 
@@ -829,39 +771,38 @@ async function submitCard(colId) {
   if (error) console.error(error);
 }
 
-// ── Move card (to end of a column) ───────────────────────────────────────────
+// ── Move card (used by modal column selector) ─────────────────────────────────
 async function moveCard(cardId, targetCol) {
-  const card = state.cards.find(c => c.id === cardId);
-  if (!card) return;
   const targetCards = state.cards.filter(c => c.column_id === targetCol && c.id !== cardId);
   const pos = targetCards.length ? Math.max(...targetCards.map(c => c.position)) + 1 : 0;
   const { error } = await sb.from('cards').update({ column_id: targetCol, position: pos }).eq('id', cardId);
   if (error) console.error(error);
 }
 
-// ── Reorder card (insert before/after a specific card) ────────────────────────
-async function reorderCard(cardId, targetCardId, insertBefore, targetColId) {
-  // Sorted cards in target column, excluding the dragged card
-  const sorted = state.cards
-    .filter(c => c.column_id === targetColId && c.id !== cardId)
+// ── SortableJS drop handler ───────────────────────────────────────────────────
+async function handleSortEnd(evt) {
+  const cardId   = evt.item.dataset.id;
+  const toColId  = evt.to.id.replace('cw-', '');
+
+  // Current state of destination column (excluding moved card, sorted)
+  const destCards = state.cards
+    .filter(c => c.column_id === toColId && c.id !== cardId)
     .sort((a, b) => a.position - b.position);
 
-  const targetIdx = sorted.findIndex(c => c.id === targetCardId);
-  if (targetIdx === -1) { await moveCard(cardId, targetColId); return; }
-
-  const insertIdx = insertBefore ? targetIdx : targetIdx + 1;
+  // Real DOM order after SortableJS moved the element
+  const domIds   = [...evt.to.querySelectorAll('[data-id]')].map(el => el.dataset.id);
+  const newIdx   = domIds.indexOf(cardId);
+  const prevCard = destCards.find(c => c.id === domIds[newIdx - 1]);
+  const nextCard = destCards.find(c => c.id === domIds[newIdx + 1]);
 
   let newPos;
-  if (insertIdx === 0) {
-    newPos = sorted[0].position - 1;
-  } else if (insertIdx >= sorted.length) {
-    newPos = sorted[sorted.length - 1].position + 1;
-  } else {
-    newPos = (sorted[insertIdx - 1].position + sorted[insertIdx].position) / 2;
-  }
+  if (!prevCard && !nextCard) newPos = 0;
+  else if (!prevCard)         newPos = nextCard.position - 1;
+  else if (!nextCard)         newPos = prevCard.position + 1;
+  else                        newPos = (prevCard.position + nextCard.position) / 2;
 
-  const { error } = await sb.from('cards').update({ column_id: targetColId, position: newPos }).eq('id', cardId);
-  if (error) console.error(error);
+  const { error } = await sb.from('cards').update({ column_id: toColId, position: newPos }).eq('id', cardId);
+  if (error) { console.error(error); loadData(); } // fallback: reload on error
 }
 
 // ── Card Modal ────────────────────────────────────────────────────────────────
