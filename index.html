@@ -473,6 +473,16 @@
 
     .btn-lg { padding: 10px 20px; font-size: 15px; width: 100%; border-radius: 6px; margin-top: 4px; }
 
+    /* ── Drag-reorder indicators ── */
+    .card.drop-above {
+      box-shadow: 0 -3px 0 0 #388bff, 0 1px 2px rgba(0,0,0,0.09);
+      transform: translateY(1px);
+    }
+    .card.drop-below {
+      box-shadow: 0 3px 0 0 #388bff, 0 1px 2px rgba(0,0,0,0.09);
+      transform: translateY(-1px);
+    }
+
     /* scrollbar */
     .cards-wrap::-webkit-scrollbar { width: 5px; }
     .cards-wrap::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 4px; }
@@ -567,6 +577,7 @@ let sb = null;
 let state = { cards: [], checklist: [] };
 let activeCardId = null;
 let draggedCardId = null;
+let dropTarget = null; // { cardId, before: bool }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 async function init() {
@@ -655,15 +666,48 @@ function buildBoard() {
     </div>
   `).join('');
 
-  // Column DnD listeners (attached once)
-  board.querySelectorAll('[data-column]').forEach(col => {
-    col.addEventListener('dragover', e => { e.preventDefault(); col.classList.add('drag-over'); });
-    col.addEventListener('dragleave', e => { if (!col.contains(e.relatedTarget)) col.classList.remove('drag-over'); });
-    col.addEventListener('drop', e => {
-      e.preventDefault();
-      col.classList.remove('drag-over');
-      if (draggedCardId) moveCard(draggedCardId, col.dataset.column);
-    });
+  // Board-level DnD (handles both reorder within column and move between columns)
+  function clearDragUI() {
+    board.querySelectorAll('.card.drop-above, .card.drop-below').forEach(c => c.classList.remove('drop-above', 'drop-below'));
+    board.querySelectorAll('.column.drag-over').forEach(c => c.classList.remove('drag-over'));
+  }
+
+  board.addEventListener('dragover', e => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    clearDragUI();
+
+    const targetCard = e.target.closest('.card');
+    const targetCol  = e.target.closest('[data-column]');
+
+    if (targetCard && targetCard.dataset.id !== draggedCardId) {
+      const rect   = targetCard.getBoundingClientRect();
+      const before = e.clientY < rect.top + rect.height / 2;
+      targetCard.classList.add(before ? 'drop-above' : 'drop-below');
+      dropTarget = { cardId: targetCard.dataset.id, before };
+      if (targetCol) targetCol.classList.add('drag-over');
+    } else if (targetCol) {
+      targetCol.classList.add('drag-over');
+      dropTarget = null;
+    }
+  });
+
+  board.addEventListener('dragleave', e => {
+    if (!board.contains(e.relatedTarget)) { clearDragUI(); dropTarget = null; }
+  });
+
+  board.addEventListener('drop', e => {
+    e.preventDefault();
+    const targetCol = e.target.closest('[data-column]');
+    clearDragUI();
+    if (!draggedCardId || !targetCol) { dropTarget = null; return; }
+    const colId = targetCol.dataset.column;
+    if (dropTarget) {
+      reorderCard(draggedCardId, dropTarget.cardId, dropTarget.before, colId);
+    } else {
+      moveCard(draggedCardId, colId);
+    }
+    dropTarget = null;
   });
 
   // Add-card listeners (attached once)
@@ -694,7 +738,9 @@ function buildBoard() {
     const card = e.target.closest('.card');
     if (card) card.classList.remove('dragging');
     draggedCardId = null;
+    dropTarget = null;
     board.querySelectorAll('.drag-over').forEach(c => c.classList.remove('drag-over'));
+    board.querySelectorAll('.card.drop-above, .card.drop-below').forEach(c => c.classList.remove('drop-above', 'drop-below'));
   });
 }
 
@@ -742,13 +788,38 @@ async function submitCard(colId) {
   if (error) console.error(error);
 }
 
-// ── Move card ─────────────────────────────────────────────────────────────────
+// ── Move card (to end of a column) ───────────────────────────────────────────
 async function moveCard(cardId, targetCol) {
   const card = state.cards.find(c => c.id === cardId);
-  if (!card || card.column_id === targetCol) return;
-  const targetCards = state.cards.filter(c => c.column_id === targetCol);
+  if (!card) return;
+  const targetCards = state.cards.filter(c => c.column_id === targetCol && c.id !== cardId);
   const pos = targetCards.length ? Math.max(...targetCards.map(c => c.position)) + 1 : 0;
   const { error } = await sb.from('cards').update({ column_id: targetCol, position: pos }).eq('id', cardId);
+  if (error) console.error(error);
+}
+
+// ── Reorder card (insert before/after a specific card) ────────────────────────
+async function reorderCard(cardId, targetCardId, insertBefore, targetColId) {
+  // Sorted cards in target column, excluding the dragged card
+  const sorted = state.cards
+    .filter(c => c.column_id === targetColId && c.id !== cardId)
+    .sort((a, b) => a.position - b.position);
+
+  const targetIdx = sorted.findIndex(c => c.id === targetCardId);
+  if (targetIdx === -1) { await moveCard(cardId, targetColId); return; }
+
+  const insertIdx = insertBefore ? targetIdx : targetIdx + 1;
+
+  let newPos;
+  if (insertIdx === 0) {
+    newPos = sorted[0].position - 1;
+  } else if (insertIdx >= sorted.length) {
+    newPos = sorted[sorted.length - 1].position + 1;
+  } else {
+    newPos = (sorted[insertIdx - 1].position + sorted[insertIdx].position) / 2;
+  }
+
+  const { error } = await sb.from('cards').update({ column_id: targetColId, position: newPos }).eq('id', cardId);
   if (error) console.error(error);
 }
 
