@@ -98,7 +98,7 @@
       padding: 10px 12px;
       cursor: pointer;
       box-shadow: 0 1px 2px rgba(0,0,0,0.09), 0 0 0 1px rgba(0,0,0,0.04);
-      transition: box-shadow 0.15s, transform 0.1s;
+      transition: box-shadow 0.15s;
       user-select: none;
     }
     .card:hover {
@@ -106,8 +106,8 @@
       transform: translateY(-1px);
     }
     .card.dragging {
-      opacity: 0.45;
-      transform: rotate(1.5deg) scale(1.02);
+      opacity: 0.35;
+      pointer-events: none;
       box-shadow: 0 12px 28px rgba(0,0,0,0.22);
     }
     .card-title { font-size: 14px; color: #172b4d; line-height: 1.45; }
@@ -476,11 +476,9 @@
     /* ── Drag-reorder indicators ── */
     .card.drop-above {
       box-shadow: 0 -3px 0 0 #388bff, 0 1px 2px rgba(0,0,0,0.09);
-      transform: translateY(1px);
     }
     .card.drop-below {
       box-shadow: 0 3px 0 0 #388bff, 0 1px 2px rgba(0,0,0,0.09);
-      transform: translateY(-1px);
     }
 
     /* scrollbar */
